@@ -1,0 +1,38 @@
+{
+    "itemId": "v1|2233445566|0",
+    "title": "Smart Watch Series 7",
+    "price": {
+        "value": "199.99",
+        "currency": "USD"
+    },
+    "image": {
+        "imageUrl": "https://i.ebayimg.com/main_watch.jpg"
+    },
+    "itemVariations": [
+        {
+            "itemId": "v1|2233445566|1001",
+            "sku": "WATCH-SLV-44",
+            "price": {
+                "value": "209.99",
+                "currency": "USD"
+            },
+            "stockStatus": "IN_STOCK",
+            "variationAspects": [
+                { "name": "Band Color", "value": "Silver" },
+                { "name": "Case Size", "value": "44mm" }
+            ],
+            "images": [
+                { "imageUrl": "https://i.ebayimg.com/watch_silver.jpg" }
+            ],
+            "itemWebUrl": "https://www.ebay.com/itm/2233445566?var=1001"
+        },
+        {
+            "variationAspects": [
+                { "name": "Band Color", "value": "Space Gray" },
+                { "name": "Case Size", "value": "40mm" }
+            ],
+            "stockStatus": "OUT_OF_STOCK",
+            "itemWebUrl": "https://www.ebay.com/itm/2233445566?var=1002"
+        }
+    ]
+}

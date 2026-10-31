@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Multiple Variation Groups Product</title>
+</head>
+<body>
+    <span id="productTitle">Running Shoes</span>
+    <span id="priceblock_ourprice">$89.99</span>
+    
+    <!-- DOM has two separate groups: Color (2 options) and Size (3 options) -->
+    <div id="variation_color_name">
+        <ul>
+            <li data-defaultasin="B00COLOR1" title="Black">Black</li>
+            <li data-defaultasin="B00COLOR2" title="White">White</li>
+        </ul>
+    </div>
+    <div id="variation_size_name">
+        <ul>
+            <li data-defaultasin="B00SIZE1" title="Small">Small</li>
+            <li data-defaultasin="B00SIZE2" title="Medium">Medium</li>
+            <li data-defaultasin="B00SIZE3" title="Large">Large</li>
+        </ul>
+    </div>
+
+    <!-- The twister script explicitly defines the only 3 valid combinations: Cartesian would have 2*3=6 -->
+    <script type="text/javascript">
+        var data = {
+            "asinVariationValues": {
+                "B00CHILD1": { "color_name": "Black", "size_name": "Medium" },
+                "B00CHILD2": { "color_name": "Black", "size_name": "Large" },
+                "B00CHILD3": { "color_name": "White", "size_name": "Small" }
+            },
+            "asinToPrice": {
+                "B00CHILD1": 89.99,
+                "B00CHILD2": 94.99
+            }
+        };
+    </script>
+</body>
+</html>

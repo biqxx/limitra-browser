@@ -1,0 +1,117 @@
+provider: amazon
+version: 1
+domains:
+  - amazon.com
+  - www.amazon.com
+  - amazon.co.uk
+  - www.amazon.co.uk
+  - amazon.de
+  - www.amazon.de
+  - amazon.ca
+  - www.amazon.ca
+  - amazon.co.jp
+  - www.amazon.co.jp
+locales:
+  - en-US
+  - en-GB
+  - de-DE
+
+search:
+  url_template: "https://www.amazon.com/s?k={query}&page={page}"
+  result_container:
+    - "div[data-component-type='s-search-result']"
+    - "div.s-result-item[data-asin]"
+  external_id:
+    attribute: "data-asin"
+  title:
+    - "h2 a span"
+    - "h2.a-size-mini span"
+  url:
+    - "h2 a.a-link-normal"
+    - "a.a-link-normal.s-no-outline"
+  price:
+    - ".a-price .a-offscreen"
+    - "span.a-price-whole"
+  original_price:
+    - ".a-text-price .a-offscreen"
+    - "span.a-price.a-text-price span.a-offscreen"
+  image:
+    - "img.s-image"
+  next_page:
+    - "a.s-pagination-next"
+  rating:
+    - "i.a-icon-star-small span.a-icon-alt"
+    - "span[aria-label*='stars']"
+  review_count:
+    - "span[aria-label*='ratings']"
+    - "span.a-size-base.s-underline-text"
+
+product:
+  title:
+    - "#productTitle"
+    - "h1#title span"
+    - "#title"
+  subtitle:
+    - "#bylineInfo"
+    - "#productSubtitle"
+  description:
+    - "#productDescription p"
+    - "#productDescription"
+    - "#feature-bullets"
+  bullet_points:
+    - "#feature-bullets ul li span.a-list-item"
+    - "#featurebullets_feature_div ul li"
+  price:
+    - "#corePrice_feature_div .a-price .a-offscreen"
+    - "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen"
+    - ".apexPriceToPay .a-offscreen"
+    - "#priceblock_ourprice"
+    - "#priceblock_dealprice"
+  original_price:
+    - ".basisPrice .a-offscreen"
+    - "#corePriceDisplay_desktop_feature_div .a-text-price .a-offscreen"
+    - "#priceblock_saleprice"
+  currency:
+    - ".a-price-symbol"
+  availability:
+    - "#availability span"
+    - "#availability"
+    - "#outOfStock"
+  images:
+    - "#landingImage"
+    - "#imgBlkFront"
+    - "#altImages ul li img"
+  specifications:
+    rows:
+      - "#productDetails_techSpec_section_1 tr"
+      - "#prodDetails tr"
+      - "#detailBullets_feature_div ul li"
+    key:
+      - "th"
+      - ".a-text-bold"
+    value:
+      - "td"
+      - "span:not(.a-text-bold)"
+  variants:
+    groups:
+      - "#twister_feature_div .a-row"
+      - ".inline-twister-row"
+    option:
+      - "li.swatchAvailable"
+      - "li[data-defaultasin]"
+    name:
+      - "label"
+      - ".a-form-label"
+    price:
+      - ".a-price .a-offscreen"
+  brand:
+    - "#bylineInfo"
+    - "a#bylineInfo"
+    - "#brand"
+  seller:
+    - "#merchant-info"
+    - "#sellerProfileTriggerId"
+  shipping:
+    - "#deliveryBlockMessage"
+    - "#mir-layout-DELIVERY_BLOCK"
+    - "#amazonGlobal_feature_div"

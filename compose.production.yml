@@ -1,0 +1,166 @@
+# Production Docker Compose for Limitra-Browser Supplier Service
+# Image is built and published by GitHub Actions to GHCR.
+#
+# Memory Profile & Sizing:
+# - Migration: Ephemeral process, executes Alembic migrations and exits (~80MB peak).
+# - API (Single worker, concurrency=1): Baseline FastAPI ~80MB + single Chromium tab ~150-200MB.
+#   Resource limits: 768MB limit / 256MB reservation.
+# - Worker (Concurrency=2): Baseline worker ~100MB + two concurrent Chromium instances ~300-400MB.
+#   Resource limits: 1200MB limit / 512MB reservation.
+#
+# Chromium Sandbox & Security Mitigations:
+# In standard unprivileged container runtimes without CAP_SYS_ADMIN or user namespaces,
+# Chromium's setuid sandbox cannot initialize. The browser runs with --no-sandbox, which
+# is compensated by defense-in-depth protections:
+# 1. Non-root system user (appuser UID 1001).
+# 2. no-new-privileges: true prevents privilege escalation.
+# 3. cap_drop: ALL drops all Linux capabilities.
+# 4. tmpfs mount for /tmp ensures memory-backed ephemeral storage with noexec and nosuid.
+# 5. Network segmentation: internal platform_data and edge platform_edge.
+# 6. Hard CPU and memory quotas to prevent denial of service.
+
+services:
+  migration:
+    image: ghcr.io/biqxx/limitra-browser:${IMAGE_TAG:-latest}
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    user: "1001:1001"
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+    networks:
+      - platform_data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  api:
+    image: ghcr.io/biqxx/limitra-browser:${IMAGE_TAG:-latest}
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+    restart: unless-stopped
+    user: "1001:1001"
+    environment:
+      - ENVIRONMENT=production
+      - SERVICE_NAME=limitra-supplier-service
+      - PORT=8000
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+      - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
+      - API_KEY_SECRET=${API_KEY_SECRET:?API_KEY_SECRET is required}
+      - INTERNAL_SERVICE_SECRET=${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET is required}
+      - BOOTSTRAP_ADMIN_API_KEY=${BOOTSTRAP_ADMIN_API_KEY:-}
+      - QUICK_BUY_SIGNING_SECRET=${QUICK_BUY_SIGNING_SECRET:-}
+      - ENFORCE_API_KEYS=${ENFORCE_API_KEYS:-true}
+      - EBAY_API_ENABLED=${EBAY_API_ENABLED:-false}
+      - EBAY_APP_ID=${EBAY_APP_ID:-}
+      - EBAY_CERT_ID=${EBAY_CERT_ID:-}
+      - EBAY_ENVIRONMENT=${EBAY_ENVIRONMENT:-PRODUCTION}
+      - AMAZON_API_ENABLED=${AMAZON_API_ENABLED:-false}
+      - AMAZON_ACCESS_KEY=${AMAZON_ACCESS_KEY:-}
+      - AMAZON_SECRET_KEY=${AMAZON_SECRET_KEY:-}
+      - AMAZON_PARTNER_TAG=${AMAZON_PARTNER_TAG:-}
+      - BROWSER_HEADLESS=true
+      - BROWSER_MAX_GLOBAL_CONCURRENCY=1
+      - BROWSER_MAX_PER_SUPPLIER_CONCURRENCY=1
+      - DIAGNOSTIC_MODE_ENABLED=false
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    networks:
+      platform_edge:
+        aliases:
+          - limitra-supplier
+      platform_data: {}
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health/ready || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  worker:
+    image: ghcr.io/biqxx/limitra-browser:${IMAGE_TAG:-latest}
+    command: ["python", "-m", "app.workers.worker_main"]
+    restart: unless-stopped
+    user: "1001:1001"
+    environment:
+      - ENVIRONMENT=production
+      - SERVICE_NAME=limitra-supplier-worker
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+      - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
+      - API_KEY_SECRET=${API_KEY_SECRET:?API_KEY_SECRET is required}
+      - INTERNAL_SERVICE_SECRET=${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET is required}
+      - EBAY_API_ENABLED=${EBAY_API_ENABLED:-false}
+      - EBAY_APP_ID=${EBAY_APP_ID:-}
+      - EBAY_CERT_ID=${EBAY_CERT_ID:-}
+      - EBAY_ENVIRONMENT=${EBAY_ENVIRONMENT:-PRODUCTION}
+      - AMAZON_API_ENABLED=${AMAZON_API_ENABLED:-false}
+      - AMAZON_ACCESS_KEY=${AMAZON_ACCESS_KEY:-}
+      - AMAZON_SECRET_KEY=${AMAZON_SECRET_KEY:-}
+      - AMAZON_PARTNER_TAG=${AMAZON_PARTNER_TAG:-}
+      - BROWSER_HEADLESS=true
+      - BROWSER_MAX_GLOBAL_CONCURRENCY=2
+      - BROWSER_MAX_PER_SUPPLIER_CONCURRENCY=1
+      - DIAGNOSTIC_MODE_ENABLED=false
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    networks:
+      platform_data: {}
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import asyncio, os, sys; from app.workers.redis_queue import check_active_workers; sys.exit(0 if asyncio.run(check_active_workers()) else 1)'"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1200M
+        reservations:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+networks:
+  platform_edge:
+    external: true
+    name: platform_edge
+  platform_data:
+    external: true
+    name: platform_data

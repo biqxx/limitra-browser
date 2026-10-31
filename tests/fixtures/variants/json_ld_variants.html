@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JSON-LD Variations Product</title>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org/",
+        "@type": "Product",
+        "name": "Pro Gaming Headset",
+        "hasVariant": [
+            {
+                "@type": "Product",
+                "sku": "HEADSET-STEALTH",
+                "name": "Stealth Edition",
+                "color": "Black",
+                "image": "https://example.com/stealth.jpg",
+                "offers": {
+                    "@type": "Offer",
+                    "price": "99.99",
+                    "priceCurrency": "USD",
+                    "availability": "https://schema.org/InStock"
+                }
+            },
+            {
+                "@type": "Product",
+                "sku": "HEADSET-ARCTIC",
+                "name": "Arctic Edition",
+                "color": "White",
+                "image": "https://example.com/arctic.jpg",
+                "offers": {
+                    "@type": "Offer",
+                    "availability": "https://schema.org/OutOfStock"
+                }
+            }
+        ]
+    }
+    </script>
+</head>
+<body>
+    <h1>Pro Gaming Headset</h1>
+</body>
+</html>

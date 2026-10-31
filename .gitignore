@@ -1,0 +1,58 @@
+# Python Bytecode and Caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Environment files and secrets
+.env
+.env*
+*.env
+*.pem
+*.key
+credentials*
+*.credentials
+*token*
+*.id_rsa
+*.id_ed25519
+
+# SQLite Databases & Local Storage
+*.db
+*.sqlite
+*.sqlite3
+supplier_browser.db
+*.rdb
+
+# Diagnostics & Media Traces
+diagnostics/
+traces/
+browser_traces/
+*.trace
+*.trace.zip
+*.png
+*.jpg
+*.jpeg
+*.webm
+
+
+# Testing & Coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE & OS Files
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db

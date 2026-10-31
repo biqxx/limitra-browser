@@ -1,0 +1,124 @@
+provider: ebay
+version: 1
+domains:
+  - ebay.com
+  - www.ebay.com
+  - ebay.co.uk
+  - www.ebay.co.uk
+  - ebay.de
+  - www.ebay.de
+  - ebay.ca
+  - www.ebay.ca
+  - ebay.com.au
+  - www.ebay.com.au
+locales:
+  - en-US
+  - en-GB
+  - de-DE
+
+search:
+  url_template: "https://www.ebay.com/sch/i.html?_nkw={query}&_pgn={page}"
+  result_container:
+    - ".s-item"
+    - "li.s-item"
+    - "[data-view='mi:1686|iid:1']"
+  external_id:
+    attribute: "data-item-id"
+    selectors:
+      - ".s-item__link"
+  title:
+    - ".s-item__title"
+    - "h3.s-item__title"
+    - ".s-item__title span"
+  url:
+    - ".s-item__link"
+    - "a.s-item__link"
+  price:
+    - ".s-item__price"
+    - "span.s-item__price"
+  original_price:
+    - ".s-item__trending-price .STRIKETHROUGH"
+    - ".s-item__discount-price"
+  image:
+    - ".s-item__image-img"
+    - "img.s-item__image-img"
+  next_page:
+    - "a.pagination__next"
+    - "nav.pagination a[rel='next']"
+  rating:
+    - ".x-star-rating span"
+    - ".b-starrating"
+  review_count:
+    - ".s-item__reviews-count"
+    - ".s-item__reviews-count span"
+
+product:
+  title:
+    - "h1.x-item-title__mainTitle span"
+    - "h1.x-item-title__mainTitle"
+    - "#itemTitle"
+    - "h1[data-testid='x-item-title']"
+  subtitle:
+    - ".x-item-title__subTitle"
+  description:
+    - "#viTabs_0_is"
+    - "#desc_div"
+    - ".d-item-description"
+    - "#vi-desc-maincntr"
+  bullet_points:
+    - ".ux-layout-section__textual-display"
+    - ".itemAttr ul li"
+  price:
+    - ".x-price-primary span"
+    - "#prcIsum"
+    - ".x-bin-price__content span"
+    - "[data-testid='x-price-primary']"
+  original_price:
+    - ".x-price-approx span"
+    - ".x-additional-info__text--original"
+    - "#mm-saleDscPrc"
+  currency:
+    - "[itemprop='priceCurrency']"
+  availability:
+    - ".d-quantity__availability span"
+    - "#qtySubTxt"
+    - ".x-quantity__availability"
+  images:
+    - ".ux-image-filmstrip-carousel img"
+    - ".x-photos-min-view img"
+    - "#icImg"
+    - "[data-testid='ux-image-carousel-item'] img"
+  specifications:
+    rows:
+      - ".ux-layout-section-evo__row"
+      - ".itemAttr tr"
+      - ".ux-labels-values"
+    key:
+      - ".ux-labels-values__labels"
+      - "th"
+      - ".col-label"
+    value:
+      - ".ux-labels-values__values"
+      - "td"
+      - ".col-value"
+  variants:
+    groups:
+      - ".x-msku__select-box"
+      - "[data-testid='x-msku-select']"
+    option:
+      - "option"
+    name:
+      - "label"
+    price:
+      - ".x-msku__price"
+  brand:
+    - "[itemprop='brand']"
+    - ".ux-labels-values__values span"
+  seller:
+    - ".x-sellercard-atf__info__about-seller span"
+    - ".mbg-nw"
+    - "[data-testid='x-sellercard-atf'] a"
+  shipping:
+    - ".ux-labels-values--shipping"
+    - "#shSummary"
+    - ".ux-labels-values__values-content"
