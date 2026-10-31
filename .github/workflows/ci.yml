@@ -135,6 +135,8 @@ jobs:
             -e REDIS_URL=redis://127.0.0.1:6379/0 \
             -e API_KEY_SECRET=testsecret123456789012345678901234 \
             -e INTERNAL_SERVICE_SECRET=internal_test_secret_123456789012 \
+            -e BOOTSTRAP_ADMIN_API_KEY=ci_test_bootstrap_admin_key_32bytes_long \
+            -e QUICK_BUY_SIGNING_SECRET=ci_test_quickbuy_secret_32bytes_long \
             -e ENFORCE_API_KEYS=false \
             -e BROWSER_MAX_GLOBAL_CONCURRENCY=1 \
             -e BROWSER_MAX_PER_SUPPLIER_CONCURRENCY=1 \
@@ -177,6 +179,8 @@ jobs:
             -e REDIS_URL=redis://127.0.0.1:6379/0 \
             -e API_KEY_SECRET=testsecret123456789012345678901234 \
             -e INTERNAL_SERVICE_SECRET=internal_test_secret_123456789012 \
+            -e BOOTSTRAP_ADMIN_API_KEY=ci_test_bootstrap_admin_key_32bytes_long \
+            -e QUICK_BUY_SIGNING_SECRET=ci_test_quickbuy_secret_32bytes_long \
             -e BROWSER_MAX_GLOBAL_CONCURRENCY=2 \
             -e BROWSER_MAX_PER_SUPPLIER_CONCURRENCY=1 \
             limitra-browser:local-test python -m app.workers.worker_main
