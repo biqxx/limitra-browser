@@ -44,17 +44,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # 2. In production, verify Alembic migration head; in other environments, init db
     if settings.ENVIRONMENT.lower() == "production":
-        from app.database.session import check_alembic_head_revision
+        from app.database.session import check_alembic_head_revision, get_expected_alembic_head
 
         is_current, rev = await check_alembic_head_revision()
         if not is_current:
+            expected = get_expected_alembic_head()
             msg = (
-                f"FATAL: Database revision '{rev}' does not match Alembic head '001_initial'. "
+                f"FATAL: Database revision '{rev}' does not match expected Alembic head '{expected}'. "
                 "Run 'alembic upgrade head' before starting the service in production."
             )
-            logger.error("alembic_migration_check_failed", revision=rev)
+            logger.error("alembic_migration_check_failed", revision=rev, expected=expected)
             raise RuntimeError(msg)
         logger.info("alembic_head_revision_verified", revision=rev)
+
     else:
         await init_db()
 

@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import structlog
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -14,8 +15,11 @@ from sqlalchemy.ext.asyncio import (
 from app.config import get_settings
 from app.database.models import Base
 
+logger = structlog.get_logger(__name__)
+
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
+
 
 
 def get_engine() -> AsyncEngine:
@@ -106,20 +110,41 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def check_alembic_head_revision(expected_revision: str = "001_initial") -> tuple[bool, str | None]:
+def get_expected_alembic_head() -> str | None:
+    """Programmatically determines the current Alembic head revision."""
+    try:
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        cfg = Config("alembic.ini")
+        script = ScriptDirectory.from_config(cfg)
+        return script.get_current_head()
+    except Exception as e:
+        logger.warning("failed_to_resolve_alembic_head", error=str(e))
+        return None
+
+
+async def check_alembic_head_revision(
+    expected_revision: str | None = None,
+) -> tuple[bool, str | None]:
     """
     Checks if the database revision in `alembic_version` table matches the expected head.
+    Determines expected revision programmatically from Alembic scripts if not provided.
     Returns (is_current, current_revision).
     """
     from sqlalchemy import text
+
+    if expected_revision is None:
+        expected_revision = get_expected_alembic_head()
 
     eng = get_engine()
     try:
         async with eng.connect() as conn:
             res = await conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
             row = res.scalar_one_or_none()
-            if row == expected_revision:
+            if expected_revision and row == expected_revision:
                 return True, row
             return False, row
     except Exception as e:
         return False, str(e)
+
