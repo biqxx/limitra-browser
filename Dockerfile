@@ -51,9 +51,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 
-# Install only the Chromium browser binary used by the application,
-# omitting the redundant chromium-headless-shell download to reduce image size.
-RUN playwright install --no-shell chromium && \
+# Install only the Chromium headless shell runtime used by the application in production,
+# omitting the redundant full desktop Chromium to significantly reduce image size.
+RUN playwright install --only-shell chromium && \
     rm -rf /root/.cache /tmp/*
 
 # Create non-root system user and runtime directories
