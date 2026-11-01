@@ -40,7 +40,9 @@ def get_redis_client() -> Redis | None:
                 max_connections=settings.REDIS_MAX_CONNECTIONS,
                 decode_responses=False,
                 socket_connect_timeout=0.5,
-                socket_timeout=1.0,
+                # Queue consumers use a two-second blocking XREADGROUP call.
+                # Keep the socket timeout comfortably above that block window.
+                socket_timeout=5.0,
             )
         except Exception as e:
             logger.warning("redis_client_init_failed", error=str(e))
