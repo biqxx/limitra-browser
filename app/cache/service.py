@@ -169,6 +169,7 @@ class CacheService:
         product: NormalizedProduct,
         version: int = 1,
         ttl_seconds: int | None = None,
+        requested_currency: str | None = None,
     ) -> None:
         ttl = ttl_seconds or self.settings.CACHE_PRODUCT_TTL_SECONDS
         key = self.make_product_cache_key(
@@ -176,7 +177,7 @@ class CacheService:
             product.external_id,
             product.locale,
             product.country,
-            product.currency,
+            requested_currency or product.currency or "UNKNOWN",
             version,
         )
         val = product.model_dump_json()

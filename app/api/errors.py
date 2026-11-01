@@ -175,6 +175,48 @@ class OfficialApiUnavailableException(SupplierServiceException):
         )
 
 
+class SupplierNotConfiguredException(SupplierServiceException):
+    """Official API credentials are missing or the integration is disabled."""
+
+    def __init__(self, provider: str, reason: str, env_vars: list[str] | None = None):
+        super().__init__(
+            ErrorCode.SUPPLIER_NOT_CONFIGURED,
+            f"Supplier '{provider}' is not configured: {reason}",
+            provider=provider,
+            status_code=HTTP_503_SERVICE_UNAVAILABLE,
+            retryable=False,
+            details={"required_env_vars": env_vars or []},
+        )
+
+
+class SupplierAuthenticationException(SupplierServiceException):
+    """The supplier rejected OUR credentials (distinct from the internal-secret 401)."""
+
+    def __init__(self, provider: str, reason: str, upstream_status: int | None = None):
+        super().__init__(
+            ErrorCode.SUPPLIER_AUTH_FAILED,
+            f"Supplier '{provider}' rejected the configured API credentials: {reason}",
+            provider=provider,
+            status_code=HTTP_502_BAD_GATEWAY,
+            retryable=False,
+            details={"upstream_status": upstream_status},
+        )
+
+
+class SupplierAccessForbiddenException(SupplierServiceException):
+    """The supplier refused access (HTTP 403). Never retried via browser scraping."""
+
+    def __init__(self, provider: str, reason: str, upstream_status: int | None = 403):
+        super().__init__(
+            ErrorCode.SUPPLIER_ACCESS_FORBIDDEN,
+            f"Supplier '{provider}' denied access: {reason}",
+            provider=provider,
+            status_code=HTTP_502_BAD_GATEWAY,
+            retryable=False,
+            details={"upstream_status": upstream_status},
+        )
+
+
 class ParsingFailedException(SupplierServiceException):
     def __init__(self, message: str, provider: str, details: dict[str, Any] | None = None):
         super().__init__(

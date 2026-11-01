@@ -83,6 +83,31 @@ curl -s http://localhost:8000/health/live
 curl -s http://localhost:8000/health/ready
 ```
 
+### Production dependencies and supplier credentials
+
+`compose.production.yml` deploys the migration, API, and worker containers only. It expects
+reachable PostgreSQL and Redis services through `DATABASE_URL` and `REDIS_URL`, plus existing
+Docker networks named `platform_edge` and `platform_data`. A fresh standalone EC2 instance must
+either provide those services itself or use externally reachable managed/shared services; Docker
+networks do not span separate EC2 hosts.
+
+eBay browser scraping is disabled by default because eBay rejects automated browser access. Set
+`EBAY_API_ENABLED=true`, `EBAY_APP_ID`, `EBAY_CERT_ID`, and `EBAY_ENVIRONMENT=PRODUCTION` through
+the deployment environment. Keep `EBAY_BROWSER_FALLBACK_ENABLED=false` in production.
+
+Amazon uses PA-API when its credentials are configured and otherwise uses the browser adapter.
+The browser adapter selects the storefront from the requested country and reports the currency it
+actually detects; a mismatch is returned as a data-quality warning and is never silently relabelled.
+
+Live supplier acceptance tests are intentionally opt-in:
+
+```bash
+RUN_LIVE_SUPPLIER_TESTS=true pytest -q tests/integration/test_amazon_live_acceptance.py
+RUN_LIVE_SUPPLIER_TESTS=true pytest -q tests/integration/test_ebay_live_acceptance.py
+```
+
+Never place supplier credentials in the repository or Docker image.
+
 ---
 
 ## 💻 Local Development Setup

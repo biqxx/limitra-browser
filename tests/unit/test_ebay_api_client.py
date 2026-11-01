@@ -9,8 +9,9 @@ import pytest
 
 from app.api.errors import (
     ProductNotFoundException,
+    SupplierAccessForbiddenException,
+    SupplierAuthenticationException,
     SupplierRateLimitedException,
-    UnauthorizedException,
 )
 from app.suppliers.ebay.api_client import EbayApiClient
 
@@ -101,7 +102,7 @@ async def test_ebay_error_sanitization_and_redaction(configured_ebay_client: Eba
 
     with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = resp_401
-        with pytest.raises(UnauthorizedException) as exc_info:
+        with pytest.raises(SupplierAuthenticationException) as exc_info:
             await client.search("test")
 
         err_msg = str(exc_info.value)
@@ -141,4 +142,29 @@ async def test_ebay_error_sanitization_and_redaction(configured_ebay_client: Eba
             await client.search("laptop")
 
         assert rate_exc_info.value.details.get("retry_after_seconds") == 45
+
+
+@pytest.mark.asyncio
+async def test_ebay_forbidden_does_not_fall_back_or_leak_secrets(
+    configured_ebay_client: EbayApiClient,
+) -> None:
+    client = configured_ebay_client
+    client._token = "valid_cached_token"
+    client._token_expires_at = time.time() + 3600
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = 403
+    response.json.return_value = {
+        "errors": [{"errorId": 1100, "message": "Application access denied"}]
+    }
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = response
+
+        with pytest.raises(SupplierAccessForbiddenException) as exc_info:
+            await client.search("laptop")
+
+    message = str(exc_info.value)
+    assert "Application access denied" in message
+    assert "test_client_secret_456" not in message
+    assert "valid_cached_token" not in message
 

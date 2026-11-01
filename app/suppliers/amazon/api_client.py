@@ -23,19 +23,20 @@ from app.schemas.products import (
     SellerInfo,
 )
 from app.schemas.search import ProductSearchResponse, SearchResultItem
+from app.suppliers.amazon.marketplaces import get_marketplace
 
 logger = structlog.get_logger(__name__)
 
 
-def _safe_float(val: Any, default: float = 0.0) -> float:
+def _safe_float(val: Any) -> float | None:
     if val is None:
-        return default
+        return None
     try:
         if isinstance(val, str):
             val = val.replace("%", "").replace(",", "").strip()
         return float(val)
     except (ValueError, TypeError):
-        return default
+        return None
 
 
 def _safe_int(val: Any, default: int = 0) -> int:
@@ -85,6 +86,7 @@ class AmazonApiClient:
         page_size: int = 10,
         currency: str = "USD",
         locale: str = "en-US",
+        country: str = "US",
     ) -> ProductSearchResponse:
         if not self.is_configured:
             raise OfficialApiUnavailableException(
@@ -93,7 +95,8 @@ class AmazonApiClient:
             )
 
         # PA-API 5.0 SearchItems operation implementation
-        host = self.settings.AMAZON_HOST
+        marketplace = get_marketplace(country)
+        host = marketplace.paapi_host
         endpoint = f"https://{host}/paapi5/searchitems"
 
         payload = {
@@ -110,11 +113,17 @@ class AmazonApiClient:
             "PartnerType": "Associates",
             "ItemPage": page,
             "ItemCount": min(page_size, 10),
+            "Marketplace": marketplace.base_url,
         }
 
         body_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
         async with httpx.AsyncClient() as client:
-            headers = self._build_aws_headers(body_bytes, "SearchItems")
+            headers = self._build_aws_headers(
+                body_bytes,
+                "SearchItems",
+                host=host,
+                region=marketplace.paapi_region,
+            )
             resp = await client.post(endpoint, content=body_bytes, headers=headers, timeout=15.0)
 
             if resp.status_code == 429:
@@ -131,7 +140,7 @@ class AmazonApiClient:
             for raw in data.get("SearchResult", {}).get("Items", []):
                 asin = raw.get("ASIN", "")
                 title = raw.get("ItemInfo", {}).get("Title", {}).get("DisplayValue", "")
-                detail_url = raw.get("DetailPageURL", f"https://www.amazon.com/dp/{asin}")
+                detail_url = raw.get("DetailPageURL", f"{marketplace.base_url}/dp/{asin}")
                 img_url = raw.get("Images", {}).get("Primary", {}).get("Large", {}).get("URL")
 
                 # Price
@@ -141,7 +150,7 @@ class AmazonApiClient:
                     else {}
                 )
                 price_val = _safe_float(listing.get("Price", {}).get("Amount"))
-                price_curr = listing.get("Price", {}).get("Currency", currency)
+                price_curr = listing.get("Price", {}).get("Currency")
 
                 items.append(
                     SearchResultItem(
@@ -152,7 +161,7 @@ class AmazonApiClient:
                         price=price_val,
                         currency=price_curr,
                         thumbnail_url=img_url,
-                        in_stock=True,
+                        in_stock=None,
                     )
                 )
 
@@ -172,6 +181,7 @@ class AmazonApiClient:
         asin: str,
         currency: str = "USD",
         locale: str = "en-US",
+        country: str = "US",
     ) -> NormalizedProduct:
         if not self.is_configured:
             raise OfficialApiUnavailableException(
@@ -179,7 +189,8 @@ class AmazonApiClient:
                 "Amazon PA-API 5.0 credentials (AMAZON_ACCESS_KEY, AMAZON_SECRET_KEY, AMAZON_PARTNER_TAG) are not configured.",
             )
 
-        host = self.settings.AMAZON_HOST
+        marketplace = get_marketplace(country)
+        host = marketplace.paapi_host
         endpoint = f"https://{host}/paapi5/getitems"
 
         payload = {
@@ -199,11 +210,17 @@ class AmazonApiClient:
             ],
             "PartnerTag": self.settings.AMAZON_PARTNER_TAG,
             "PartnerType": "Associates",
+            "Marketplace": marketplace.base_url,
         }
 
         body_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
         async with httpx.AsyncClient() as client:
-            headers = self._build_aws_headers(body_bytes, "GetItems")
+            headers = self._build_aws_headers(
+                body_bytes,
+                "GetItems",
+                host=host,
+                region=marketplace.paapi_region,
+            )
             resp = await client.post(endpoint, content=body_bytes, headers=headers, timeout=15.0)
 
             if resp.status_code == 404:
@@ -238,7 +255,7 @@ class AmazonApiClient:
                 else {}
             )
             price_val = _safe_float(listing.get("Price", {}).get("Amount"))
-            price_curr = listing.get("Price", {}).get("Currency", currency)
+            price_curr = listing.get("Price", {}).get("Currency")
 
             # Images
             images: list[ProductImage] = []
@@ -256,23 +273,26 @@ class AmazonApiClient:
 
             provenance = {
                 "title": FieldProvenance(source="official_api", confidence=0.99),
-                "current_price": FieldProvenance(source="official_api", confidence=0.99),
                 "features": FieldProvenance(source="official_api", confidence=0.99),
             }
+            if price_val is not None:
+                provenance["current_price"] = FieldProvenance(
+                    source="official_api", confidence=0.99
+                )
 
             return NormalizedProduct(
                 provider="amazon",
                 external_id=asin,
-                canonical_url=item.get("DetailPageURL", f"https://www.amazon.com/dp/{asin}"),
+                canonical_url=item.get("DetailPageURL", f"{marketplace.base_url}/dp/{asin}"),
                 locale=locale,
-                country="US",
+                country=country,
                 title=title,
                 brand=brand,
                 description="\n".join(features),
                 bullet_points=features,
                 current_price=price_val,
                 currency=price_curr,
-                availability=ProductAvailability.IN_STOCK,
+                availability=ProductAvailability.UNKNOWN,
                 rating=rating,
                 review_count=review_count,
                 condition="new",
@@ -288,6 +308,8 @@ class AmazonApiClient:
         payload_bytes: bytes,
         target_action: str,
         timestamp: datetime | None = None,
+        host: str | None = None,
+        region: str | None = None,
     ) -> dict[str, str]:
         # AWS Signature v4 header construction using exact payload bytes
         t = timestamp or datetime.now(timezone.utc)
@@ -295,8 +317,8 @@ class AmazonApiClient:
         amz_date = t.strftime("%Y%m%dT%H%M%SZ")
         date_stamp = t.strftime("%Y%m%d")
 
-        host = self.settings.AMAZON_HOST
-        region = self.settings.AMAZON_REGION
+        host = host or self.settings.AMAZON_HOST
+        region = region or self.settings.AMAZON_REGION
         service = "ProductAdvertisingAPI"
         content_type = "application/json; charset=UTF-8"
         target = f"com.amazon.paapi5.v1.ProductAdvertisingAPIv1.{target_action}"

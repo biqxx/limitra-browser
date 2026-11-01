@@ -14,13 +14,23 @@ from app.main import app
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
+def live_supplier_tests_enabled() -> bool:
+    return os.getenv("RUN_LIVE_SUPPLIER_TESTS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def pytest_configure(config):
     os.environ["ENVIRONMENT"] = "testing"
     os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
     os.environ["ENFORCE_API_KEYS"] = "true"
     os.environ["BOOTSTRAP_ADMIN_API_KEY"] = "test_admin_api_key_12345"
-    os.environ["EBAY_API_ENABLED"] = "false"
-    os.environ["AMAZON_API_ENABLED"] = "false"
+    if not live_supplier_tests_enabled():
+        os.environ["EBAY_API_ENABLED"] = "false"
+        os.environ["AMAZON_API_ENABLED"] = "false"
     os.environ["DIAGNOSTIC_MODE_ENABLED"] = "false"
     get_settings.cache_clear()
     from app.database.session import reset_db_engine
@@ -34,8 +44,9 @@ def setup_test_env():
     os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
     os.environ["ENFORCE_API_KEYS"] = "true"
     os.environ["BOOTSTRAP_ADMIN_API_KEY"] = "test_admin_api_key_12345"
-    os.environ["EBAY_API_ENABLED"] = "false"
-    os.environ["AMAZON_API_ENABLED"] = "false"
+    if not live_supplier_tests_enabled():
+        os.environ["EBAY_API_ENABLED"] = "false"
+        os.environ["AMAZON_API_ENABLED"] = "false"
     os.environ["DIAGNOSTIC_MODE_ENABLED"] = "false"
     get_settings.cache_clear()
     from app.database.session import reset_db_engine

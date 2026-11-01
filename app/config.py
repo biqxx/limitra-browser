@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     DEBUG: bool = False
+    RUN_LIVE_SUPPLIER_TESTS: bool = False
 
     # Security & Authentication
     API_KEY_SECRET: str = "supplier-service-default-secret-salt-key-32ch"
@@ -85,6 +86,9 @@ class Settings(BaseSettings):
     EBAY_APP_ID: str = ""
     EBAY_CERT_ID: str = ""
     EBAY_ENVIRONMENT: str = "PRODUCTION"
+    # Browser scraping of eBay is only a controlled, opt-in fallback for API *outages*.
+    # It is never used after a 401/403 or when credentials are missing.
+    EBAY_BROWSER_FALLBACK_ENABLED: bool = False
 
     # Official Supplier API: Amazon Product Advertising API
     AMAZON_API_ENABLED: bool = False

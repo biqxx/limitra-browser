@@ -10,9 +10,9 @@ import structlog
 from app.api.errors import (
     InvalidProductUrlException,
     OfficialApiUnavailableException,
-    ProductNotFoundException,
 )
 from app.browser.navigation import safe_navigate
+from app.config import get_settings
 from app.schemas.products import NormalizedProduct, ProductRetrievalRequest
 from app.schemas.search import ProductSearchRequest, ProductSearchResponse
 from app.suppliers.base import SupplierAdapter, SupplierExecutionContext, SupplierHealth
@@ -94,7 +94,10 @@ class EbayAdapter(SupplierAdapter):
         request: ProductSearchRequest,
         context: SupplierExecutionContext,
     ) -> ProductSearchResponse:
-        # Priority 1: Official API if configured
+        # The official Browse API is the primary (and by default only) eBay source.
+        # Missing/invalid credentials, 401 and 403 are surfaced as structured errors and
+        # are NEVER silently retried through browser scraping.
+        settings = get_settings()
         if self.api_client.is_configured:
             try:
                 return await self.api_client.search(
@@ -105,13 +108,17 @@ class EbayAdapter(SupplierAdapter):
                     currency=request.currency,
                     locale=request.locale,
                 )
-            except Exception as e:
-                logger.warning("ebay_official_api_search_fallback", error=str(e))
+            except OfficialApiUnavailableException as e:
+                if not settings.EBAY_BROWSER_FALLBACK_ENABLED:
+                    raise
+                logger.warning("ebay_official_api_unavailable_browser_fallback", error=e.message)
+        elif not settings.EBAY_BROWSER_FALLBACK_ENABLED:
+            self.api_client.require_configured()
 
-        # Priority 2: Browser fallback
+        # Controlled browser fallback (opt-in via EBAY_BROWSER_FALLBACK_ENABLED)
         if not context.browser_manager:
             raise OfficialApiUnavailableException(
-                "ebay", "eBay official API is not configured and browser execution is disabled."
+                "ebay", "eBay official API is unavailable and browser execution is disabled."
             )
 
         encoded_q = quote_plus(request.query)
@@ -164,7 +171,7 @@ class EbayAdapter(SupplierAdapter):
                 "Either 'url' or 'external_id' must be provided.", provider="ebay"
             )
 
-        # Priority 1: Official API if configured
+        settings = get_settings()
         if self.api_client.is_configured:
             try:
                 return await self.api_client.get_item(
@@ -173,15 +180,17 @@ class EbayAdapter(SupplierAdapter):
                     currency=request.currency,
                     locale=request.locale,
                 )
-            except ProductNotFoundException:
-                raise
-            except Exception as e:
-                logger.warning("ebay_official_api_get_item_fallback", error=str(e))
+            except OfficialApiUnavailableException as e:
+                if not settings.EBAY_BROWSER_FALLBACK_ENABLED:
+                    raise
+                logger.warning("ebay_official_api_unavailable_browser_fallback", error=e.message)
+        elif not settings.EBAY_BROWSER_FALLBACK_ENABLED:
+            self.api_client.require_configured()
 
-        # Priority 2: Browser fallback
+        # Controlled browser fallback (opt-in via EBAY_BROWSER_FALLBACK_ENABLED)
         if not context.browser_manager:
             raise OfficialApiUnavailableException(
-                "ebay", "eBay official API is not configured and browser execution is disabled."
+                "ebay", "eBay official API is unavailable and browser execution is disabled."
             )
 
         async with await context.browser_manager.get_session(

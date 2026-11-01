@@ -4,7 +4,13 @@ import re
 from datetime import datetime, timezone
 
 from app.api.compat.schemas import LegacyProduct, LegacyVariant
-from app.schemas.products import NormalizedProduct, ProductAvailability, ProductVariant
+from app.schemas.products import (
+    DataQuality,
+    NormalizedProduct,
+    PriceStatus,
+    ProductAvailability,
+    ProductVariant,
+)
 from app.schemas.search import SearchResultItem
 
 
@@ -167,10 +173,14 @@ def map_variant(v: ProductVariant) -> LegacyVariant:
 def map_normalized_product_to_legacy(product: NormalizedProduct) -> LegacyProduct:
     weight_lb, weight_kg = extract_weight_from_product(product)
     min_days, max_days = extract_delivery_days(product)
-    available = product.availability in (
+    available: bool | None = None
+    if product.availability in (
         ProductAvailability.IN_STOCK,
         ProductAvailability.LIMITED_STOCK,
-    )
+    ):
+        available = True
+    elif product.availability == ProductAvailability.OUT_OF_STOCK:
+        available = False
     image_url = product.images[0].url if product.images else ""
     has_variants = bool(product.variant_retrieval and len(product.variants) > 0)
 
@@ -179,8 +189,8 @@ def map_normalized_product_to_legacy(product: NormalizedProduct) -> LegacyProduc
         supplier=product.provider.lower(),
         title=product.title,
         description=product.description or "",
-        price=round(product.current_price, 2),
-        currency=product.currency or "USD",
+        price=round(product.current_price, 2) if product.current_price is not None else None,
+        currency=product.currency,
         image_url=image_url,
         product_url=product.canonical_url,
         available=available,
@@ -191,17 +201,39 @@ def map_normalized_product_to_legacy(product: NormalizedProduct) -> LegacyProduc
         weight_kg=weight_kg,
         us_delivery_days_min=min_days,
         us_delivery_days_max=max_days,
+        warnings=product.warnings,
+        data_quality=product.data_quality,
     )
 
 
 def map_search_item_to_legacy(item: SearchResultItem) -> LegacyProduct:
+    price_verified = item.price is not None and item.price > 0 and bool(item.currency)
+    missing_fields: list[str] = []
+    if item.price is None or item.price <= 0:
+        missing_fields.append("price")
+    if not item.currency:
+        missing_fields.append("currency")
+    if not item.thumbnail_url:
+        missing_fields.append("images")
+    data_quality = DataQuality(
+        complete=not missing_fields and not item.warnings,
+        missing_fields=missing_fields,
+        warnings=item.warnings,
+        price_verified=price_verified,
+        currency_verified=bool(item.currency),
+        images_verified=bool(item.thumbnail_url),
+        variants_complete=False,
+        price_status=PriceStatus.AVAILABLE if price_verified else PriceStatus.UNAVAILABLE,
+        detected_currency=item.currency,
+        price_range=item.price_range,
+    )
     return LegacyProduct(
         supplier_id=item.external_id,
         supplier=item.provider.lower(),
         title=item.title,
         description="",
-        price=round(item.price, 2),
-        currency=item.currency or "USD",
+        price=round(item.price, 2) if item.price is not None else None,
+        currency=item.currency,
         image_url=item.thumbnail_url or "",
         product_url=item.url,
         available=item.in_stock,
@@ -210,4 +242,6 @@ def map_search_item_to_legacy(item: SearchResultItem) -> LegacyProduct:
         weight_kg=None,
         us_delivery_days_min=None,
         us_delivery_days_max=None,
+        warnings=item.warnings,
+        data_quality=data_quality,
     )

@@ -22,16 +22,18 @@ class SearchResultItem(BaseModel):
     external_id: str
     title: str
     url: str
-    price: float
+    price: float | None = None
     original_price: float | None = None
-    currency: str = "USD"
+    currency: str | None = None
+    price_range: dict[str, float] | None = None
     thumbnail_url: str | None = None
     rating: float | None = None
     review_count: int | None = None
-    condition: str = "new"
+    condition: str | None = None
     seller_name: str | None = None
-    free_shipping: bool = False
-    in_stock: bool = True
+    free_shipping: bool | None = None
+    in_stock: bool | None = None
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ProductSearchRequest(BaseModel):

@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 import structlog
 from bs4 import BeautifulSoup
 
+from app.api.errors import ParsingFailedException
 from app.schemas.common import FieldProvenance, utc_now
 from app.schemas.products import (
     NormalizedProduct,
@@ -20,6 +22,7 @@ from app.schemas.search import SearchResultItem
 from app.services.normalization_service import (
     FieldMergeCandidate,
     parse_availability,
+    parse_price,
     parse_price_and_currency,
     parse_rating_and_reviews,
     select_best_field,
@@ -47,11 +50,53 @@ def _to_optional_str(val: Any) -> str | None:
     return s if s else None
 
 
+_FREE_DELIVERY_RE = re.compile(r"\bFREE\s+(?:delivery|shipping)\b", re.IGNORECASE)
+_SHIPPING_FEE_RE = re.compile(
+    r"((?:US\s?\$|[$£€₦₹¥]|\b[A-Z]{3})\s?\d[\d.,]*)\s*(?:delivery|shipping)\b",
+    re.IGNORECASE,
+)
+_USED_CONDITION_RE = re.compile(r"\b(renewed|refurbished|used|pre-owned)\b", re.IGNORECASE)
+
+
+def _price_text(scope: Any) -> str:
+    """Extract the *current* (non-strikethrough) price text from a result/detail scope.
+
+    Prefers the accessible `.a-offscreen` text (symbol + digits). If it is empty, rebuilds the
+    value from symbol/whole/fraction parts so the currency is never lost.
+    """
+    for sel in (
+        ".a-price:not(.a-text-price) .a-offscreen",
+        ".a-price .a-offscreen",
+    ):
+        el = scope.select_one(sel)
+        if el:
+            txt = el.get_text(strip=True)
+            if txt:
+                return str(txt)
+    price = scope.select_one(".a-price:not(.a-text-price)") or scope.select_one(".a-price")
+    if price:
+        symbol = price.select_one(".a-price-symbol")
+        whole = price.select_one(".a-price-whole")
+        fraction = price.select_one(".a-price-fraction")
+        if whole:
+            whole_txt = whole.get_text(strip=True).rstrip(".,")
+            frac_txt = fraction.get_text(strip=True) if fraction else ""
+            sym_txt = symbol.get_text(strip=True) if symbol else ""
+            return f"{sym_txt}{whole_txt}.{frac_txt}" if frac_txt else f"{sym_txt}{whole_txt}"
+    return ""
+
+
 class AmazonParser:
     def __init__(self, config: SupplierConfigSchema | None = None):
         self.config = config
 
-    def parse_search_results(self, html: str, provider: str = "amazon") -> list[SearchResultItem]:
+    def parse_search_results(
+        self,
+        html: str,
+        provider: str = "amazon",
+        marketplace_currency: str | None = None,
+        base_url: str = "https://www.amazon.com",
+    ) -> list[SearchResultItem]:
         soup = BeautifulSoup(html, "html.parser")
         items: list[SearchResultItem] = []
 
@@ -81,22 +126,34 @@ class AmazonParser:
                 link_el = container.select_one("h2 a") or container.select_one("a.a-link-normal")
                 href = _to_str(link_el.get("href")) if link_el else ""
                 if href and not href.startswith("http"):
-                    href = f"https://www.amazon.com{href}"
+                    href = f"{base_url}{href}"
                 elif not href:
-                    href = f"https://www.amazon.com/dp/{asin}"
+                    href = f"{base_url}/dp/{asin}"
 
-                # Price
-                price_el = container.select_one(".a-price .a-offscreen") or container.select_one(
-                    "span.a-price-whole"
-                )
-                raw_price = price_el.get_text(strip=True) if price_el else ""
-                current_price, currency = parse_price_and_currency(raw_price)
+                # Price: never default to 0.0 or to a requested currency.
+                raw_price = _price_text(container)
+                parsed = parse_price(raw_price, marketplace_currency=marketplace_currency)
+                item_warnings: list[str] = []
+                if parsed.is_range:
+                    item_warnings.append(
+                        f"price range {parsed.range_min}-{parsed.range_max}; no single price selected"
+                    )
+                elif parsed.zero_rejected:
+                    item_warnings.append("supplier showed a zero price; treated as unavailable")
+                elif parsed.amount is None:
+                    item_warnings.append("price unavailable in search result")
+                elif parsed.currency is None:
+                    item_warnings.append("price has no detectable currency")
+                current_price = parsed.amount
+                currency = parsed.currency
 
                 orig_price_el = container.select_one(".a-text-price .a-offscreen")
                 original_price = None
                 if orig_price_el:
                     original_price, _ = parse_price_and_currency(
-                        orig_price_el.get_text(strip=True), default_currency=currency
+                        orig_price_el.get_text(strip=True),
+                        default_currency=currency,
+                        marketplace_currency=marketplace_currency,
                     )
 
                 # Image
@@ -115,22 +172,39 @@ class AmazonParser:
                     rev_el.get_text(strip=True) if rev_el else None,
                 )
 
+                container_text = container.get_text(" ", strip=True)
+                free_shipping: bool | None = (
+                    True
+                    if _FREE_DELIVERY_RE.search(container_text)
+                    or container.select_one(".s-prime") is not None
+                    else None
+                )
+                cond_match = _USED_CONDITION_RE.search(title)
+
                 items.append(
                     SearchResultItem(
                         provider=provider,
                         external_id=asin,
                         title=title,
                         url=href,
-                        price=current_price or 0.0,
-                        original_price=original_price,
+                        price=current_price,
+                        original_price=original_price if current_price is not None else None,
                         currency=currency,
+                        price_range=(
+                            {"min": parsed.range_min, "max": parsed.range_max}
+                            if parsed.is_range
+                            and parsed.range_min is not None
+                            and parsed.range_max is not None
+                            else None
+                        ),
                         thumbnail_url=img_url,
                         rating=rating,
                         review_count=reviews,
-                        condition="new",
-                        seller_name="Amazon",
-                        free_shipping=True if container.select_one(".s-prime") else False,
-                        in_stock=True,
+                        condition=cond_match.group(1).lower() if cond_match else None,
+                        seller_name=None,
+                        free_shipping=free_shipping,
+                        in_stock=None,
+                        warnings=item_warnings,
                     )
                 )
             except Exception as e:
@@ -145,10 +219,19 @@ class AmazonParser:
         asin: str,
         locale: str = "en-US",
         country: str = "US",
-        currency: str = "USD",
+        currency: str | None = None,
+        marketplace_currency: str | None = None,
     ) -> NormalizedProduct:
+        """Parse an Amazon product page.
+
+        ``currency`` is the *requested* currency; it is never used to label a price.
+        ``marketplace_currency`` only resolves ambiguous symbols such as ``$`` or ``¥``.
+        """
         soup = BeautifulSoup(html, "html.parser")
         provenance: dict[str, FieldProvenance] = {}
+        warnings: list[str] = []
+        host = urlparse(url).hostname or "www.amazon.com"
+        base_url = f"https://{host}"
 
         # 1. JSON-LD Extraction
         json_ld_data = self._extract_json_ld(soup)
@@ -170,52 +253,88 @@ class AmazonParser:
                     confidence=0.90,
                 )
             )
+        else:
+            generic_title = soup.select_one("h1")
+            if generic_title:
+                title_candidates.append(
+                    FieldMergeCandidate(
+                        generic_title.get_text(strip=True),
+                        source="fallback",
+                        selector="h1",
+                        confidence=0.55,
+                    )
+                )
 
         title, p_title = select_best_field(title_candidates)
         if p_title:
             provenance["title"] = p_title
 
-        # 3. Price & Currency
-        price_candidates = []
+        # 3. Price & Currency (currency is only ever what the supplier states)
+        price_candidates: list[FieldMergeCandidate] = []
+        price_range: dict[str, float] | None = None
         offers = json_ld_data.get("offers", {})
         if isinstance(offers, list) and offers:
             offers = offers[0]
+        if not isinstance(offers, dict):
+            offers = {}
         if offers.get("price"):
             try:
                 p_val = float(offers["price"])
-                p_curr = offers.get("priceCurrency") or currency
-                price_candidates.append(
-                    FieldMergeCandidate((p_val, p_curr), source="json_ld", confidence=0.95)
-                )
-            except ValueError:
+                p_curr = offers.get("priceCurrency")
+                if p_val > 0:
+                    price_candidates.append(
+                        FieldMergeCandidate(
+                            (p_val, str(p_curr).upper() if p_curr else None),
+                            source="json_ld",
+                            confidence=0.95,
+                        )
+                    )
+            except (ValueError, TypeError):
                 pass
 
-        price_el = (
-            soup.select_one("#corePrice_feature_div .a-price .a-offscreen")
-            or soup.select_one("#corePriceDisplay_desktop_feature_div .a-price .a-offscreen")
-            or soup.select_one(".apexPriceToPay .a-offscreen")
-            or soup.select_one("#priceblock_ourprice")
-            or soup.select_one(".a-price .a-offscreen")
-        )
-        if price_el:
-            p_val_num, p_curr_num = parse_price_and_currency(
-                price_el.get_text(strip=True), default_currency=currency
-            )
-            if p_val_num is not None:
-                price_candidates.append(
-                    FieldMergeCandidate(
-                        (p_val_num, p_curr_num),
-                        source="css_selector",
-                        selector=".a-price .a-offscreen",
-                        confidence=0.90,
-                    )
+        raw_price_text = self._page_price_text(soup)
+        parsed_price = parse_price(raw_price_text, marketplace_currency=marketplace_currency)
+        if parsed_price.usable:
+            price_candidates.append(
+                FieldMergeCandidate(
+                    (parsed_price.amount, parsed_price.currency),
+                    source="css_selector",
+                    selector=".a-price .a-offscreen",
+                    confidence=0.90,
                 )
+            )
+        elif parsed_price.is_range and parsed_price.range_min is not None:
+            price_range = {
+                "min": float(parsed_price.range_min),
+                "max": float(parsed_price.range_max or parsed_price.range_min),
+            }
+            warnings.append("supplier displayed a price range; no single price selected")
+        elif parsed_price.zero_rejected:
+            warnings.append("supplier displayed a zero price; treated as unavailable")
+
+        # If visible page price and JSON-LD disagree on currency, say so (never silently pick).
+        distinct_currencies = {c.value[1] for c in price_candidates if c.value[1]}
+        if len(distinct_currencies) > 1:
+            warnings.append(
+                "price sources disagree on currency: " + ", ".join(sorted(distinct_currencies))
+            )
 
         price_tuple, p_price = select_best_field(price_candidates)
-        current_price = price_tuple[0] if price_tuple else 0.0
-        final_currency = price_tuple[1] if price_tuple else currency
+        current_price: float | None = price_tuple[0] if price_tuple else None
+        final_currency: str | None = price_tuple[1] if price_tuple else parsed_price.currency
+        if current_price is not None and final_currency is None:
+            # Another source stating the same amount may carry the currency.
+            for cand in price_candidates:
+                if cand.value[1] and cand.value[0] == current_price:
+                    final_currency = cand.value[1]
+                    break
         if p_price:
             provenance["current_price"] = p_price
+        if parsed_price.explicit_free:
+            provenance["price_explicit_free"] = FieldProvenance(
+                source="css_selector", confidence=0.9
+            )
+            current_price = 0.0
 
         # Original Price
         orig_el = soup.select_one(".basisPrice .a-offscreen") or soup.select_one(
@@ -224,7 +343,9 @@ class AmazonParser:
         original_price = None
         if orig_el:
             original_price, _ = parse_price_and_currency(
-                orig_el.get_text(strip=True), default_currency=final_currency
+                orig_el.get_text(strip=True),
+                default_currency=final_currency,
+                marketplace_currency=marketplace_currency,
             )
             provenance["original_price"] = FieldProvenance(
                 source="css_selector", selector=".basisPrice", confidence=0.85
@@ -319,24 +440,25 @@ class AmazonParser:
             brand = b.get("name") if isinstance(b, dict) else str(b)
 
         seller_el = soup.select_one("#merchant-info") or soup.select_one("#sellerProfileTriggerId")
-        seller_name = "Amazon"
+        seller = SellerInfo()  # name stays "Unknown Seller" unless Amazon states one
         if seller_el:
             seller_text = seller_el.get_text(strip=True)
             if "Ships from and sold by" in seller_text:
-                seller_name = seller_text.replace("Ships from and sold by", "").strip()
+                seller = SellerInfo(
+                    name=seller_text.replace("Ships from and sold by", "").strip(" .")
+                )
             elif seller_text:
-                seller_name = seller_text
+                seller = SellerInfo(name=seller_text)
 
-        seller = SellerInfo(name=seller_name)
-
-        # 10. Shipping (only add when supported by source)
+        # 10. Shipping (only add when explicitly supported by the page)
         shipping_options: list[ShippingOption] = []
         ship_block = soup.select_one(
             "#mir-layout-DELIVERY_BLOCK, #deliveryBlockMessage, #fast-track-message, #delivery-message"
         )
         if ship_block:
             ship_text = ship_block.get_text(separator=" ", strip=True)
-            if "free" in ship_text.lower():
+            fee_match = _SHIPPING_FEE_RE.search(ship_text)
+            if _FREE_DELIVERY_RE.search(ship_text):
                 shipping_options.append(
                     ShippingOption(
                         name="Standard Delivery",
@@ -345,14 +467,18 @@ class AmazonParser:
                         free_shipping=True,
                     )
                 )
-            else:
-                p, c = parse_price_and_currency(ship_text, default_currency=final_currency)
-                if p is not None and p > 0:
+            elif fee_match:
+                fee, fee_currency = parse_price_and_currency(
+                    fee_match.group(1),
+                    default_currency=final_currency,
+                    marketplace_currency=marketplace_currency,
+                )
+                if fee is not None and fee > 0:
                     shipping_options.append(
                         ShippingOption(
                             name="Standard Delivery",
-                            price=float(p),
-                            currency=c or final_currency,
+                            price=float(fee),
+                            currency=fee_currency,
                             free_shipping=False,
                         )
                     )
@@ -364,7 +490,16 @@ class AmazonParser:
             base_price=current_price,
             currency=final_currency,
             json_ld_data=json_ld_data,
+            base_url=base_url,
         )
+
+        if not title:
+            raise ParsingFailedException(
+                "Amazon product title could not be found on the page.",
+                provider="amazon",
+                details={"external_id": asin},
+            )
+        cond_match = _USED_CONDITION_RE.search(title)
 
         return NormalizedProduct(
             provider="amazon",
@@ -372,18 +507,19 @@ class AmazonParser:
             canonical_url=url,
             locale=locale,
             country=country,
-            title=title or f"Amazon Item {asin}",
+            title=title,
             brand=brand,
             description=description,
             bullet_points=bullet_points,
             current_price=current_price,
             original_price=original_price,
             currency=final_currency,
+            price_range=price_range,
             availability=availability,
             available_quantity=available_qty,
             rating=rating,
             review_count=review_count,
-            condition="new",
+            condition=cond_match.group(1).lower() if cond_match else None,
             seller=seller,
             images=images,
             specifications=specifications,
@@ -393,15 +529,39 @@ class AmazonParser:
             source_metadata=provenance,
             retrieved_at=utc_now(),
             variant_retrieval=bool(len(variants) > 0),
+            warnings=warnings,
         )
+
+    @staticmethod
+    def _page_price_text(soup: BeautifulSoup) -> str:
+        """Return the raw text of the buy-box price, trying the most specific scopes first."""
+        for scope_sel in (
+            "#corePrice_feature_div",
+            "#corePriceDisplay_desktop_feature_div",
+            ".apexPriceToPay",
+        ):
+            scope = soup.select_one(scope_sel)
+            if scope:
+                txt = _price_text(scope)
+                if txt:
+                    return txt
+                own = scope.select_one(".a-offscreen")
+                if own and own.get_text(strip=True):
+                    return str(own.get_text(strip=True))
+        for direct in ("#priceblock_ourprice", "#priceblock_dealprice", "#price_inside_buybox"):
+            el = soup.select_one(direct)
+            if el and el.get_text(strip=True):
+                return str(el.get_text(strip=True))
+        return _price_text(soup)
 
     def _extract_variants(
         self,
         soup: BeautifulSoup,
         asin: str,
-        base_price: float,
-        currency: str,
+        base_price: float | None,
+        currency: str | None,
         json_ld_data: dict[str, Any],
+        base_url: str = "https://www.amazon.com",
     ) -> list[ProductVariant]:
         from app.config import get_settings
 
@@ -470,7 +630,7 @@ class AmazonParser:
                     currency=v_curr,
                     availability=v_avail,
                     images=v_img,
-                    canonical_url=f"https://www.amazon.com/dp/{v_id}" if v_id else None,
+                    canonical_url=f"{base_url}/dp/{v_id}" if v_id else None,
                 )
             )
             if len(variants) >= max_combos:
@@ -548,7 +708,7 @@ class AmazonParser:
                                     currency=currency,
                                     availability=c_avail,
                                     images=c_imgs,
-                                    canonical_url=f"https://www.amazon.com/dp/{child_asin}",
+                                    canonical_url=f"{base_url}/dp/{child_asin}",
                                 )
                             )
                             if len(variants) >= max_combos:
@@ -613,7 +773,7 @@ class AmazonParser:
                         currency=currency,
                         availability=swatch_avail,
                         images=v_images,
-                        canonical_url=f"https://www.amazon.com/dp/{child_asin}",
+                        canonical_url=f"{base_url}/dp/{child_asin}",
                     )
                 )
                 if len(variants) >= max_combos:

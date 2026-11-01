@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.config import get_settings
 from app.suppliers.ebay.api_client import EbayApiClient
 
 
@@ -15,6 +16,9 @@ async def test_ebay_live_acceptance_read_only() -> None:
     - If credentials are not present in environment, skips gracefully.
     - Validates returned item fields and variants without inventing missing values.
     """
+    if not get_settings().RUN_LIVE_SUPPLIER_TESTS:
+        pytest.skip("Set RUN_LIVE_SUPPLIER_TESTS=true to run live supplier acceptance tests.")
+
     client = EbayApiClient()
     if not client.is_configured:
         pytest.skip(

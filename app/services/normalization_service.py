@@ -5,74 +5,34 @@ from typing import Any
 
 from app.schemas.common import FieldProvenance
 from app.schemas.products import ProductAvailability
+from app.services.price_parser import ParsedPrice, parse_price
 
-CURRENCY_MAP = {
-    "$": "USD",
-    "US $": "USD",
-    "USD": "USD",
-    "€": "EUR",
-    "EUR": "EUR",
-    "£": "GBP",
-    "GBP": "GBP",
-    "¥": "JPY",
-    "JPY": "JPY",
-    "CAD": "CAD",
-    "C $": "CAD",
-    "AUD": "AUD",
-    "A $": "AUD",
-    "₹": "INR",
-    "INR": "INR",
-}
+__all__ = [
+    "FieldMergeCandidate",
+    "ParsedPrice",
+    "parse_availability",
+    "parse_price",
+    "parse_price_and_currency",
+    "parse_rating_and_reviews",
+    "select_best_field",
+]
 
 
 def parse_price_and_currency(
-    raw_price: str | None, default_currency: str = "USD"
-) -> tuple[float | None, str]:
+    raw_price: str | None,
+    default_currency: str | None = None,
+    marketplace_currency: str | None = None,
+) -> tuple[float | None, str | None]:
     """
-    Extracts numerical price value and ISO 4217 currency from text:
-    e.g. '$149.99' -> (149.99, 'USD')
-    e.g. 'EUR 45,50' -> (45.50, 'EUR')
-    e.g. '1,299.00 USD' -> (1299.00, 'USD')
+    Extracts a numeric price and ISO 4217 currency from supplier text.
+
+    The currency is whatever the text actually states. ``default_currency`` is only
+    returned when the text contains no currency at all and the caller knowingly
+    inherits it from the same page (e.g. original price next to a detected current
+    price). Ranges and unusable values return ``None`` for the amount.
     """
-    if not raw_price or not isinstance(raw_price, str):
-        return None, default_currency
-
-    text = raw_price.strip()
-
-    # Detect currency
-    currency = default_currency
-    for symbol, code in sorted(CURRENCY_MAP.items(), key=lambda x: len(x[0]), reverse=True):
-        if symbol in text:
-            currency = code
-            break
-
-    # Extract digits, dots, commas
-    # Remove symbols
-    cleaned = re.sub(r"[^\d.,]", "", text)
-    if not cleaned:
-        return None, currency
-
-    # Handle European comma decimals: 45,50 vs US comma thousands: 1,450.50
-    if "," in cleaned and "." in cleaned:
-        # If dot is last, comma is thousands separator: 1,450.50 -> 1450.50
-        if cleaned.rfind(".") > cleaned.rfind(","):
-            cleaned = cleaned.replace(",", "")
-        else:
-            # 1.450,50 -> 1450.50
-            cleaned = cleaned.replace(".", "").replace(",", ".")
-    elif "," in cleaned and "." not in cleaned:
-        # Check if single comma looks like decimal: e.g. 45,50
-        parts = cleaned.split(",")
-        if len(parts) == 2 and len(parts[1]) in (1, 2):
-            cleaned = f"{parts[0]}.{parts[1]}"
-        else:
-            cleaned = cleaned.replace(",", "")
-
-    try:
-        val = float(cleaned)
-        return round(val, 2), currency
-    except ValueError:
-        return None, currency
+    parsed = parse_price(raw_price, marketplace_currency=marketplace_currency)
+    return parsed.amount, parsed.currency or default_currency
 
 
 def parse_availability(raw_text: str | None) -> tuple[ProductAvailability, int | None]:

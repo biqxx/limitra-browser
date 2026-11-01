@@ -18,6 +18,7 @@ from app.observability.metrics import (
     SUPPLIER_REQUESTS_TOTAL,
 )
 from app.schemas.products import NormalizedProduct, ProductRetrievalRequest
+from app.services.data_quality import assess_product
 from app.suppliers.base import SupplierExecutionContext
 from app.suppliers.registry import get_supplier_registry
 
@@ -114,6 +115,7 @@ class ProductService:
 
             try:
                 product = await adapter.get_product(request, context)
+                product = assess_product(product, requested_currency=request.currency)
                 duration = time.time() - start_time
 
                 SUPPLIER_REQUESTS_TOTAL.labels(
@@ -128,14 +130,18 @@ class ProductService:
                 ).observe(duration)
 
                 # Store in cache
-                await self.cache.set_product(product, version=adapter.converter_version)
+                await self.cache.set_product(
+                    product,
+                    version=adapter.converter_version,
+                    requested_currency=request.currency,
+                )
 
                 logger.info(
                     "product_retrieval_completed",
                     provider=provider,
                     external_id=external_id,
-                    title=product.title,
                     price=product.current_price,
+                    currency=product.currency,
                     duration_ms=int(duration * 1000),
                 )
                 return product

@@ -16,6 +16,31 @@ class ProductAvailability(str, Enum):
     UNKNOWN = "unknown"
 
 
+class PriceStatus(str, Enum):
+    """Why a price is (or is not) present. Never inferred; always derived from supplier data."""
+
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+    RANGE = "range"
+    FREE = "free"
+
+
+class DataQuality(BaseModel):
+    """Structured completeness report consumed by the Laravel pricing/approval workflow."""
+
+    complete: bool = False
+    missing_fields: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    price_verified: bool = False
+    currency_verified: bool = False
+    images_verified: bool = False
+    variants_complete: bool = False
+    price_status: PriceStatus = PriceStatus.UNAVAILABLE
+    requested_currency: str | None = None
+    detected_currency: str | None = None
+    price_range: dict[str, float] | None = None
+
+
 class SellerInfo(BaseModel):
     name: str = "Unknown Seller"
     id: str | None = None
@@ -55,7 +80,7 @@ class ProductVariant(BaseModel):
     )
     price: float | None = None
     original_price: float | None = None
-    currency: str = "USD"
+    currency: str | None = None
     availability: ProductAvailability = ProductAvailability.UNKNOWN
     available_quantity: int | None = None
     images: list[ProductImage] = Field(default_factory=list)
@@ -64,11 +89,11 @@ class ProductVariant(BaseModel):
 
 class ShippingOption(BaseModel):
     name: str = "Standard Shipping"
-    price: float = 0.0
-    currency: str = "USD"
+    price: float | None = None
+    currency: str | None = None
     estimated_days_min: int | None = None
     estimated_days_max: int | None = None
-    free_shipping: bool = False
+    free_shipping: bool | None = None
 
 
 class NormalizedProduct(BaseModel):
@@ -88,12 +113,12 @@ class NormalizedProduct(BaseModel):
     bullet_points: list[str] = Field(default_factory=list)
     category: str | None = None
     category_path: list[str] = Field(default_factory=list)
-    condition: str = "new"
+    condition: str | None = None
     seller: SellerInfo = Field(default_factory=SellerInfo)
-    current_price: float
+    current_price: float | None = None
     original_price: float | None = None
     discount: DiscountInfo | None = None
-    currency: str = "USD"
+    currency: str | None = None
     availability: ProductAvailability = ProductAvailability.UNKNOWN
     available_quantity: int | None = None
     rating: float | None = None
@@ -109,6 +134,9 @@ class NormalizedProduct(BaseModel):
     source_metadata: dict[str, FieldProvenance] = Field(default_factory=dict)
     retrieved_at: datetime = Field(default_factory=utc_now)
     variant_retrieval: bool = False
+    price_range: dict[str, float] | None = None
+    warnings: list[str] = Field(default_factory=list)
+    data_quality: DataQuality = Field(default_factory=DataQuality)
 
 
 class ProductRetrievalRequest(BaseModel):

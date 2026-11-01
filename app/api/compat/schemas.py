@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
+from app.schemas.products import DataQuality
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -24,11 +26,11 @@ class LegacyProduct(BaseModel):
     supplier: str
     title: str
     description: str = ""
-    price: float
-    currency: str = "USD"
+    price: float | None = None
+    currency: str | None = None
     image_url: str = ""
     product_url: str = ""
-    available: bool = True
+    available: bool | None = None
     variants: list[LegacyVariant] = Field(default_factory=list)
     variant_retrieval: bool = False
     fetched_at: datetime = Field(default_factory=utc_now)
@@ -38,6 +40,8 @@ class LegacyProduct(BaseModel):
     weight_kg: float | None = None
     us_delivery_days_min: int | None = None
     us_delivery_days_max: int | None = None
+    warnings: list[str] = Field(default_factory=list)
+    data_quality: DataQuality = Field(default_factory=DataQuality)
 
 
 class LegacySearchResult(BaseModel):
@@ -62,8 +66,8 @@ class AvailabilityRequest(BaseModel):
 class AvailabilityResult(BaseModel):
     supplier: str
     supplier_id: str
-    available: bool
-    price: float
+    available: bool | None
+    price: float | None
     checked_at: datetime = Field(default_factory=utc_now)
 
 
