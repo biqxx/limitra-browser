@@ -99,6 +99,12 @@ Amazon uses PA-API when its credentials are configured and otherwise uses the br
 The browser adapter selects the storefront from the requested country and reports the currency it
 actually detects; a mismatch is returned as a data-quality warning and is never silently relabelled.
 
+Optional Playwright proxying is configured with `BROWSER_PROXY_SERVER`,
+`BROWSER_PROXY_USERNAME`, `BROWSER_PROXY_PASSWORD`, and `BROWSER_PROXY_BYPASS`. Apply the same
+settings to both API and worker containers because synchronous search/detail requests may execute
+browser work in the API process while queued extraction runs in the worker. Store proxy credentials
+only in the protected deployment environment, never in the image or repository.
+
 Live supplier acceptance tests are intentionally opt-in:
 
 ```bash

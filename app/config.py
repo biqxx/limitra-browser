@@ -61,6 +61,10 @@ class Settings(BaseSettings):
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     )
+    BROWSER_PROXY_SERVER: str = ""
+    BROWSER_PROXY_USERNAME: str = ""
+    BROWSER_PROXY_PASSWORD: str = ""
+    BROWSER_PROXY_BYPASS: str = ""
     MAX_VARIANT_COMBINATIONS: int = 50
 
     # Queue & Worker Settings

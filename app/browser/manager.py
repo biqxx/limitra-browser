@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import AbstractAsyncContextManager as AsyncContextManager
+from typing import Any
 
 import structlog
 from playwright.async_api import Browser, Page, Playwright, async_playwright
@@ -47,17 +48,43 @@ class BrowserManager:
         if self._browser is None or not self._browser.is_connected():
             logger.info("initializing_browser_pool")
             self._playwright = await async_playwright().start()
-            self._browser = await self._playwright.chromium.launch(
-                headless=self.settings.BROWSER_HEADLESS,
-                args=[
+            launch_options: dict[str, Any] = {
+                "headless": self.settings.BROWSER_HEADLESS,
+                "args": [
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
                     "--no-first-run",
                 ],
+            }
+            proxy = self._proxy_configuration()
+            if proxy is not None:
+                launch_options["proxy"] = proxy
+
+            self._browser = await self._playwright.chromium.launch(
+                **launch_options,
             )
             self._page_count = 0
-            logger.info("browser_pool_initialized")
+            logger.info("browser_pool_initialized", proxy_enabled=proxy is not None)
+
+    def _proxy_configuration(self) -> dict[str, str] | None:
+        server = self.settings.BROWSER_PROXY_SERVER.strip()
+        if not server:
+            return None
+
+        proxy = {"server": server}
+        username = self.settings.BROWSER_PROXY_USERNAME.strip()
+        password = self.settings.BROWSER_PROXY_PASSWORD
+        bypass = self.settings.BROWSER_PROXY_BYPASS.strip()
+
+        if username:
+            proxy["username"] = username
+        if password:
+            proxy["password"] = password
+        if bypass:
+            proxy["bypass"] = bypass
+
+        return proxy
 
     async def recycle_if_needed(self) -> None:
         """
